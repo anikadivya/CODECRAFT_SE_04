@@ -1,0 +1,263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sudoku Solver (Backtracking)</title>
+<style>
+  :root {
+    --accent: #4a90e2;
+    --soft: #eef5ff;
+  }
+  body {
+    font-family: system-ui, Arial, sans-serif;
+    background: #f6f7fb;
+    margin: 0;
+    display: grid;
+    place-items: center;
+    min-height: 100vh;
+    color: #222;
+  }
+  .app {
+    background: #fff;
+    padding: 20px 22px;
+    border-radius: 14px;
+    box-shadow: 0 10px 30px rgba(0,0,0,.08);
+    width: min(92vw, 540px);
+  }
+  h1 {
+    margin: 0 0 10px;
+    font-size: 1.35rem;
+    text-align: center;
+  }
+  .grid {
+    display: grid;
+    grid-template-columns: repeat(9, 1fr);
+    gap: 0;
+    border: 2px solid #333;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #333;
+  }
+  .cell {
+    width: 100%;
+    aspect-ratio: 1 / 1;
+    border: 1px solid #cfd4dc;
+    outline: none;
+    text-align: center;
+    font-size: clamp(16px, 2.6vw, 22px);
+    font-weight: 600;
+    background: #fff;
+    caret-color: var(--accent);
+  }
+ 
+  .cell.r3, .cell.r6 { border-bottom: 3px solid #333; }
+  .cell.c3, .cell.c6 { border-right: 3px solid #333; }
+
+  .controls {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 10px;
+    margin-top: 14px;
+  }
+  button {
+    padding: 10px 14px;
+    border: none;
+    border-radius: 8px;
+    background: var(--accent);
+    color: #fff;
+    font-weight: 600;
+    cursor: pointer;
+    transition: transform .05s ease, box-shadow .15s ease, background .2s ease;
+    box-shadow: 0 3px 10px rgba(74,144,226,.25);
+  }
+  button:hover { filter: brightness(1.05); }
+  button:active { transform: translateY(1px); }
+  .ghost { background: #e0e7ff; color: #213; box-shadow: none; }
+  .danger { background: #ef4444; }
+  .soft { background: var(--soft); color: #103b77; box-shadow: none; }
+  .meta {
+    margin-top: 12px;
+    font-size: .95rem;
+    color: #444;
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+  }
+  .msg.ok { color: #0c7c2b; }
+  .msg.err { color: #b91c1c; }
+  .note { font-size: .85rem; color: #666; text-align: center; margin-top: 6px; }
+  .fixed { color: #475569; background: #f9fafb; }
+</style>
+</head>
+<body>
+  <div class="app">
+    <h1>🧩 Sudoku Solver</h1>
+    <div id="grid" class="grid" aria-label="Sudoku input grid"></div>
+
+    <div class="controls">
+      <button id="solveBtn">Solve</button>
+      <button id="clearBtn" class="danger">Clear</button>
+      <button id="sampleBtn" class="ghost">Sample</button>
+      <button id="validateBtn" class="soft">Validate</button>
+    </div>
+
+    <div class="meta">
+      <div id="status" class="msg">Ready.</div>
+      <div id="stats">—</div>
+    </div>
+    <div class="note">Tip: type digits 1–9 (0 or blank = empty). Use “Validate” to check partial progress.</div>
+  </div>
+
+<script>
+  const gridEl = document.getElementById('grid');
+  const cells = [];
+  for (let r = 0; r < 9; r++) {
+    for (let c = 0; c < 9; c++) {
+      const inp = document.createElement('input');
+      inp.type = 'text';
+      inp.maxLength = 1;
+      inp.inputMode = 'numeric';
+      inp.className = `cell r${r+1%3===0?'3':''} c${c+1%3===0?'3':''}`;
+      if ((r+1) % 3 === 0) inp.classList.add('r3');
+      if ((c+1) % 3 === 0) inp.classList.add('c3');
+      inp.addEventListener('input', (e) => {
+        const v = e.target.value.replace(/\D/g,'');
+        e.target.value = v === '' ? '' : v[0] === '0' ? '' : v[0];
+      });
+      cells.push(inp);
+      gridEl.appendChild(inp);
+    }
+  }
+
+  const statusEl = document.getElementById('status');
+  const statsEl  = document.getElementById('stats');
+  const solveBtn = document.getElementById('solveBtn');
+  const clearBtn = document.getElementById('clearBtn');
+  const sampleBtn = document.getElementById('sampleBtn');
+  const validateBtn = document.getElementById('validateBtn');
+
+  function readBoard() {
+    const board = Array.from({length:9}, () => Array(9).fill(0));
+    cells.forEach((inp, i) => {
+      const r = Math.floor(i/9), c = i%9;
+      const n = parseInt(inp.value, 10);
+      board[r][c] = Number.isInteger(n) ? n : 0;
+    });
+    return board;
+  }
+
+  function writeBoard(board) {
+    cells.forEach((inp, i) => {
+      const r = Math.floor(i/9), c = i%9;
+      inp.value = board[r][c] ? board[r][c] : '';
+    });
+  }
+
+  function isValid(board, row, col, num) {
+    for (let i = 0; i < 9; i++) {
+      if (board[row][i] === num) return false;       
+      if (board[i][col] === num) return false;       
+    }
+    const r0 = row - row % 3, c0 = col - col % 3;
+    for (let r = 0; r < 3; r++) {
+      for (let c = 0; c < 3; c++) {
+        if (board[r0+r][c0+c] === num) return false; 
+      }
+    }
+    return true;
+  }
+
+  function findEmpty(board) {
+    for (let r = 0; r < 9; r++) {
+      for (let c = 0; c < 9; c++) {
+        if (board[r][c] === 0) return [r, c];
+      }
+    }
+    return null;
+  }
+
+  function solve(board) {
+    const spot = findEmpty(board);
+    if (!spot) return true; 
+    const [r, c] = spot;
+    for (let n = 1; n <= 9; n++) {
+      if (isValid(board, r, c, n)) {
+        board[r][c] = n;
+        if (solve(board)) return true;
+        board[r][c] = 0; 
+      }
+    }
+    return false;
+  }
+
+  function boardConsistent(board) {
+    for (let r = 0; r < 9; r++) {
+      for (let c = 0; c < 9; c++) {
+        const n = board[r][c];
+        if (!n) continue;
+        board[r][c] = 0;
+        const ok = isValid(board, r, c, n);
+        board[r][c] = n;
+        if (!ok) return false;
+      }
+    }
+    return true;
+  }
+
+  solveBtn.addEventListener('click', () => {
+    const board = readBoard();
+    if (!boardConsistent(board)) {
+      statusEl.textContent = '❌ Invalid puzzle: duplicates conflict.';
+      statusEl.className = 'msg err';
+      return;
+    }
+    const t0 = performance.now();
+    const solved = solve(board);
+    const t1 = performance.now();
+    if (solved) {
+      writeBoard(board);
+      statusEl.textContent = '✅ Solved!';
+      statusEl.className = 'msg ok';
+      statsEl.textContent = `Time: ${(t1 - t0).toFixed(2)} ms`;
+    } else {
+      statusEl.textContent = '⚠️ No solution found.';
+      statusEl.className = 'msg err';
+      statsEl.textContent = '—';
+    }
+  });
+
+  clearBtn.addEventListener('click', () => {
+    cells.forEach((inp) => { inp.value = ''; inp.classList.remove('fixed'); });
+    statusEl.textContent = 'Cleared. Enter a puzzle and click Solve.';
+    statusEl.className = 'msg';
+    statsEl.textContent = '—';
+  });
+
+  validateBtn.addEventListener('click', () => {
+    const ok = boardConsistent(readBoard());
+    statusEl.textContent = ok ? 'Looks valid so far ✅' : 'There is a conflict ❌';
+    statusEl.className = `msg ${ok ? 'ok' : 'err'}`;
+  });
+
+  sampleBtn.addEventListener('click', () => {
+    const sample = [
+      [5,3,0,0,7,0,0,0,0],
+      [6,0,0,1,9,5,0,0,0],
+      [0,9,8,0,0,0,0,6,0],
+      [8,0,0,0,6,0,0,0,3],
+      [4,0,0,8,0,3,0,0,1],
+      [7,0,0,0,2,0,0,0,6],
+      [0,6,0,0,0,0,2,8,0],
+      [0,0,0,4,1,9,0,0,5],
+      [0,0,0,0,8,0,0,7,9]
+    ];
+    writeBoard(sample);
+    cells.forEach((inp) => inp.classList.toggle('fixed', inp.value !== ''));
+    statusEl.textContent = 'Sample loaded. Click Solve!';
+    statusEl.className = 'msg';
+    statsEl.textContent = '—';
+  });
+</script>
+</body>
+</html>
